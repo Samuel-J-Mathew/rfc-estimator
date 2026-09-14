@@ -50,8 +50,10 @@ import {
   SITE_WORKS_COLS,
   SITE_WORKS_ROWS,
   VERSION_CELLS,
+  INTAKE_FEEDER_SIZES,
   conductorToIntake,
   conduitToIntake,
+  snapConductorToIntake,
   splitApplicationSubmitted,
 } from "./cells";
 import { estimatorOverrideRows, type IntakeOverrideRow } from "./handoff";
@@ -342,6 +344,7 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
   if (cumulativeUnits > chargerRows) warnings.push(`${cumulativeUnits} charger units against the intake's ${chargerRows} charger-run rows — the runs beyond row ${CHARGER_RUN_TABLE.lastRow} were not written.`);
   const unitsWritten = new Map<number, number>();
   const unplacedLines = new Set<string>();
+  const snappedSizes = new Map<string, number>();
   let runFt = 0;
   for (const r of result.rows) {
     if (r.synthetic) continue;
@@ -359,10 +362,20 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
       if (row > CHARGER_RUN_TABLE.lastRow) continue;
       put("Electrical", `${CHARGER_RUN_TABLE.distanceFt}${row}`, r.oneWayDistFt);
       put("Electrical", `${CHARGER_RUN_TABLE.sets}${row}`, Math.max(1, r.resolvedRunsPerUnit));
-      put("Electrical", `${CHARGER_RUN_TABLE.conductorOverride}${row}`, conductorToIntake(r.selectedWire));
-      put("Electrical", `${CHARGER_RUN_TABLE.conduitOverride}${row}`, conduitToIntake(r.conduitSize));
+      // The estimator's size, or the next one up when the sheet's table does not
+      // carry it (3 AWG, 450 kcmil…); a snapped conductor takes the sheet's own
+      // conduit rather than the estimator's, which was sized for the smaller wire.
+      const conductor = snapConductorToIntake(r.selectedWire);
+      put("Electrical", `${CHARGER_RUN_TABLE.conductorOverride}${row}`, conductor.size);
+      if (conductor.snapped) snappedSizes.set(`${conductorToIntake(r.selectedWire)} → ${conductor.size}`, (snappedSizes.get(`${conductorToIntake(r.selectedWire)} → ${conductor.size}`) ?? 0) + 1);
+      else put("Electrical", `${CHARGER_RUN_TABLE.conduitOverride}${row}`, conduitToIntake(r.conduitSize));
       runFt += r.oneWayDistFt;
     }
+  }
+  if (snappedSizes.size) {
+    warnings.push(
+      `Conductor sizes the intake's sizing table does not carry were rounded up on the charger runs: ${[...snappedSizes].map(([k, n]) => `${k} (${n} run${n === 1 ? "" : "s"})`).join(", ")} — the sheet sizes the conduit for the larger wire itself, so those rows price a little above the estimator.`,
+    );
   }
   for (const id of unplacedLines) warnings.push(`${id}: no price-book SKU on its Equipment line, so the intake lists no charger run for it — its distances were not written. Pick a SKU on the Equipment tab.`);
   for (const [rowNo, count] of lineCount) {
@@ -386,7 +399,7 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
   const svc = result.rows.find((r) => r.synthetic && r.loadTypeId.startsWith("SVC Utility"));
   put("Electrical", `${SERVICE_FEEDER_ROW.material}${SERVICE_FEEDER_ROW.row}`, s.serviceChain?.material ?? svc?.material);
   if (svc) {
-    put("Electrical", `${SERVICE_FEEDER_ROW.conductor}${SERVICE_FEEDER_ROW.row}`, conductorToIntake(svc.selectedWire));
+    put("Electrical", `${SERVICE_FEEDER_ROW.conductor}${SERVICE_FEEDER_ROW.row}`, snapConductorToIntake(svc.selectedWire, INTAKE_FEEDER_SIZES).size);
     put("Electrical", `${SERVICE_FEEDER_ROW.sets}${SERVICE_FEEDER_ROW.row}`, svc.resolvedRunsPerUnit);
     if (ambientC !== null && Number.isFinite(ambientC)) put("Electrical", ELECTRICAL_CELLS.feederAmbientC, ambientC);
     else leftBlank.push("Electrical B156 design ambient for the service feeder — the run's own site figure, needed for its ampacity check when Zero Impact Energy provides it.");

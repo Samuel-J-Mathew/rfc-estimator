@@ -505,6 +505,42 @@ export function conductorToIntake(size: string): string {
   return s;
 }
 
+/**
+ * The conductor ladder the charger-run table sizes and prices on (Electrical
+ * block H, SZ_SIZE) and the wider one the service feeder reads (RefData
+ * AMP_SIZE, which adds 450 KCMIL). The estimator's own ladder also carries
+ * 14 and 12 AWG, 3 AWG and 700 / 800 / 900 KCMIL; an override in one of those
+ * sizes reads "no ampacity on file" on the sheet and prices at zero, so the
+ * filler rounds such a size UP to the next one the sheet knows.
+ */
+export const INTAKE_CHARGER_RUN_SIZES = ["10 AWG", "8 AWG", "6 AWG", "4 AWG", "2 AWG", "1 AWG", "1 /0", "2 /0", "3 /0", "4 /0", "250 KCMIL", "300 KCMIL", "350 KCMIL", "400 KCMIL", "500 KCMIL", "600 KCMIL", "750 KCMIL", "1000 KCMIL"] as const;
+export const INTAKE_FEEDER_SIZES = ["10 AWG", "8 AWG", "6 AWG", "4 AWG", "2 AWG", "1 AWG", "1 /0", "2 /0", "3 /0", "4 /0", "250 KCMIL", "300 KCMIL", "350 KCMIL", "400 KCMIL", "450 KCMIL", "500 KCMIL", "600 KCMIL", "750 KCMIL", "1000 KCMIL"] as const;
+
+/** Circular mils of a size in the intake's spelling, for ordering. */
+function intakeSizeMils(size: string): number {
+  let m = /^(\d+) AWG$/.exec(size);
+  if (m) return { 14: 4110, 12: 6530, 10: 10380, 8: 16510, 6: 26240, 4: 41740, 3: 52620, 2: 66360, 1: 83690 }[Number(m[1])] ?? 0;
+  m = /^(\d) \/0$/.exec(size);
+  if (m) return [0, 105600, 133100, 167800, 211600][Number(m[1])] ?? 0;
+  m = /^(\d+) KCMIL$/.exec(size);
+  if (m) return Number(m[1]) * 1000;
+  return 0;
+}
+
+/**
+ * The estimator's conductor size as the intake can size and price it: the
+ * same size when the sheet's ladder carries it, else the next size up on
+ * that ladder. `snapped` says which happened.
+ */
+export function snapConductorToIntake(size: string, ladder: readonly string[] = INTAKE_CHARGER_RUN_SIZES): { size: string; snapped: boolean } {
+  const spelled = conductorToIntake(size);
+  if (ladder.includes(spelled)) return { size: spelled, snapped: false };
+  const mils = intakeSizeMils(spelled);
+  if (mils <= 0) return { size: spelled, snapped: false };
+  const up = ladder.find((s) => intakeSizeMils(s) >= mils);
+  return up ? { size: up, snapped: true } : { size: spelled, snapped: false };
+}
+
 /** Conductor sizes back to the estimator's spelling. */
 export function conductorFromIntake(size: string): string {
   const s = size.trim();

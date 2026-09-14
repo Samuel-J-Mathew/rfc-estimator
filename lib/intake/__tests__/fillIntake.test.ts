@@ -12,7 +12,7 @@ import { computeProposal } from "../../proposal";
 import { defaultCommercial, defaultDeal, defaultIntake, defaultTariff, zeroRates } from "../../proposal/defaults";
 import { findSku } from "../../ref/priceBook";
 import { applyEquipmentSchedule, loadTypeIdForSku } from "../../skus";
-import { conductorFromIntake, conductorToIntake, conduitToIntake, tradeSizeInches } from "../cells";
+import { INTAKE_FEEDER_SIZES, conductorFromIntake, conductorToIntake, conduitToIntake, snapConductorToIntake, tradeSizeInches } from "../cells";
 import { capacityForLoadType, fillIntakeWorkbook, intakeFileName, planIntakeFill, splitAddress, verifyIntakeTemplate } from "../fillIntake";
 import { projectFromIntake } from "../importIntake";
 import { readWorkbook } from "../xlsx";
@@ -104,6 +104,18 @@ function bwProject(): Project {
   project = applyFieldOverrides(project);
   return project;
 }
+
+describe("conductor sizes the intake's sizing table does not carry", () => {
+  it("rounds an estimator size up to the next one the sheet knows, and leaves a known size alone", () => {
+    expect(snapConductorToIntake("3 AWG")).toEqual({ size: "2 AWG", snapped: true });
+    expect(snapConductorToIntake("12 AWG")).toEqual({ size: "10 AWG", snapped: true });
+    expect(snapConductorToIntake("450 kcmil")).toEqual({ size: "500 KCMIL", snapped: true });
+    expect(snapConductorToIntake("450 kcmil", INTAKE_FEEDER_SIZES)).toEqual({ size: "450 KCMIL", snapped: false }); // the feeder's table has it
+    expect(snapConductorToIntake("700 kcmil")).toEqual({ size: "750 KCMIL", snapped: true });
+    expect(snapConductorToIntake("3/0 AWG")).toEqual({ size: "3 /0", snapped: false });
+    expect(snapConductorToIntake("300 kcmil")).toEqual({ size: "300 KCMIL", snapped: false });
+  });
+});
 
 describe("filling the CEO's intake from a project", async () => {
   const project = bwProject();
