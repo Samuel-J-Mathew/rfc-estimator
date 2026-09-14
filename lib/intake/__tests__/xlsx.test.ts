@@ -3,18 +3,18 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readWorkbook, serialToIsoDate, unescapeXml } from "../xlsx";
 
-const TEMPLATE = join(__dirname, "..", "..", "..", "templates", "source", "EVSE_Project_Intake_TEMPLATE_3.2.0.xlsx");
-const FIXTURE = join(__dirname, "..", "__fixtures__", "intake-sample-3.2.0.xlsx");
+const TEMPLATE = join(__dirname, "..", "..", "..", "templates", "source", "EVSE_Project_Intake_TEMPLATE_3.5.0.xlsx");
+const FIXTURE = join(__dirname, "..", "__fixtures__", "intake-sample-3.5.0.xlsx");
 
 describe("xlsx reader", () => {
   it("reads the CEO's intake template, which ExcelJS cannot open", async () => {
     const wb = await readWorkbook(readFileSync(TEMPLATE));
     expect(wb.sheetNames).toEqual([
-      "Version", "README", "Project", "Existing", "Equipment", "Electrical", "Construction", "Commercial",
-      "Revenue", "Carbon", "Deal_Structure", "Overrides", "PriceBook", "RefData", "Utilities", "RateLibrary",
+      "START HERE", "Version", "Revisions", "README", "Project", "Existing", "Equipment", "Electrical", "Construction", "Commercial",
+      "Pricing", "Revenue", "Carbon", "Deal_Structure", "Overrides", "PriceBook", "RefData", "Utilities", "RateLibrary",
     ]);
-    expect(wb.get("Version", "B4")).toBe("3.2.0");
-    expect(wb.get("Version", "B8")).toBe("b0140566d4234d54");
+    expect(wb.get("Version", "B4")).toBe("3.5.0");
+    expect(wb.get("Version", "B8")).toBe("707fa08be51f7f32");
     expect(wb.get("Project", "B22")).toBe(24);
     expect(wb.get("Project", "B23")).toBe(365);
     expect(wb.get("Commercial", "B21")).toBe(0.0839);

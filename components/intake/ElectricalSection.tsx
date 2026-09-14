@@ -5,6 +5,7 @@ import { INSTALL_METHOD_INFO, TERRAIN_INFO, defaultQuickInput, normalizeQuickInp
 import type { InstallMethod, Material, QuickEstimateInput, Terrain } from "@/lib/calc/types";
 import { utilityCivilFor } from "@/lib/calc/utilityCivil";
 import type { StickyPath } from "@/lib/intake/rebuild";
+import { defaultIntake } from "@/lib/proposal/defaults";
 import { money, num } from "@/lib/format";
 import { MaterialRatesSection } from "../MaterialRatesSection";
 import { useProject } from "../ProjectContext";
@@ -12,10 +13,10 @@ import { InterconnectionSection } from "../IntakeTab";
 import { Field, Grid, Pill, Section, inputCls, selectCls } from "../ui";
 import { useRebuild } from "./useRebuild";
 
-// 3 · Electrical — the intake's Electrical tab: materials and routing, the AC
-// run per unit, the service and switchgear, the Rule 29 block, the Level 2
-// circuits and the distribution schedule. Inputs are the Quick Estimate's;
-// the tables are the engine's sizing, live.
+// 3 · Electrical — the intake's Electrical tab (3.5.0): the sizing basis, the
+// charger-run table (one row per unit — DC and Level 2 alike), the service and
+// switchgear, the Rule 29 block and the distribution schedule. Inputs are the
+// Quick Estimate's; the tables are the engine's sizing, live.
 
 const th = "px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 whitespace-nowrap";
 const thNum = `${th} text-right`;
@@ -62,6 +63,8 @@ export function ElectricalSection() {
       },
     });
   const setFrame = (v: string) => setSetup({ gearOverrides: { ...s.gearOverrides, switchgear480A: v === "" ? undefined : Number(v) } });
+  const setAmbient = (v: string) =>
+    rebuild((p) => ({ ...p, intake: { ...(p.intake ?? defaultIntake()), designAmbientC: v === "" ? null : Number(v) } }));
 
   const dcRows = result.rows.filter((r) => !r.synthetic && r.category === "DCFC");
   const l2Rows = result.rows.filter((r) => !r.synthetic && r.category === "L2");
@@ -93,6 +96,9 @@ export function ElectricalSection() {
           </Field>
           <Field label="Spacing per extra unit (ft)" hint="Added per further unit of the same level">
             <input type="number" className={inputCls} value={input.stepFt} onChange={(e) => setQuick({ stepFt: Number(e.target.value) })} />
+          </Field>
+          <Field label="Design ambient (°C)" hint="Site data for the intake's Electrical!B10 — ASHRAE 2% design dry-bulb, or the duct-bank temperature for buried runs. Every charger-run verdict on the intake waits for it; the estimator sizes without it.">
+            <input type="number" className={inputCls} value={project.intake?.designAmbientC ?? ""} placeholder="e.g. 40" onChange={(e) => setAmbient(e.target.value)} />
           </Field>
         </Grid>
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -133,7 +139,7 @@ export function ElectricalSection() {
         </div>
       </Section>
 
-      <Section title="AC runs — one per AC-connected unit" subtitle="The engine's sizing per unit: design current, breaker, conductor, parallel sets, conduit and the voltage-drop verdict. These fill the intake's Electrical rows 12–23.">
+      <Section title="AC runs — one per AC-connected unit" subtitle="The engine's sizing per unit: design current, breaker, conductor, parallel sets, conduit and the voltage-drop verdict. These fill the intake's charger-run table (Electrical rows 18–77, one row per unit, DC and Level 2 in Equipment order) — distance, sets, and the conductor and conduit as overrides beside the sheet's own sizing.">
         {dcRows.length === 0 ? (
           <div className="text-sm text-zinc-500">No DC units yet — add charger lines on 2 · Equipment.</div>
         ) : (
@@ -246,7 +252,7 @@ export function ElectricalSection() {
       <InterconnectionSection />
 
       {l2Rows.length > 0 && (
-        <Section title="Level 2 circuits" subtitle="One circuit per run, at the unit's distance. These fill the intake's Electrical rows 151–166.">
+        <Section title="Level 2 circuits" subtitle="One circuit per run, at the unit's distance. On the intake a dual pedestal is one charger-run row with two sets (Electrical rows 18–77).">
           <div className={wrap}>
             <table className={table}>
               <thead className={theadCls}>

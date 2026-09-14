@@ -3,7 +3,7 @@
 replacement-site scenario and save it as the importer's test fixture:
 
     python3 scripts/make-intake-sample.py
-    → lib/intake/__fixtures__/intake-sample-3.2.0.xlsx
+    → lib/intake/__fixtures__/intake-sample-3.5.0.xlsx
 
 Best Western-shaped: 4 × TP5-360 dual + 2 × CTX-C40 dual on SCE, replacing a
 failing 2018 installation with twelve months of metered history, a Rule 29
@@ -16,8 +16,8 @@ import os
 import openpyxl
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "templates", "source", "EVSE_Project_Intake_TEMPLATE_3.2.0.xlsx")
-OUT = os.path.join(ROOT, "lib", "intake", "__fixtures__", "intake-sample-3.2.0.xlsx")
+SRC = os.path.join(ROOT, "templates", "source", "EVSE_Project_Intake_TEMPLATE_3.5.0.xlsx")
+OUT = os.path.join(ROOT, "lib", "intake", "__fixtures__", "intake-sample-3.5.0.xlsx")
 
 wb = openpyxl.load_workbook(SRC)
 
@@ -44,20 +44,25 @@ put("Equipment", {
     "B27": "Installation of (4) 360 kW dual-port DC fast chargers and (2) dual Level 2 units — 12 charging positions",
 })
 
-elec = {"B5": "Cu", "B6": "PVC", "B7": "Asphalt", "B8": 24, "F5": 40}
+# The Electrical tab as rebuilt at template 3.3.0: block A sizing basis (B6–B13),
+# ONE charger-run table at rows 18–77 generated from the Equipment tab (unit k
+# of the schedule is row 17 + k: here units 1–4 are the TP5 cabinets on line 1,
+# units 5–6 the Level 2 duals on line 2), the service block at rows 140–160,
+# the distribution schedule at rows 165–176 and the Rule 29 block at 185–202.
+elec = {"B6": "Cu", "B7": "PVC", "B8": "Asphalt", "B9": 24, "B10": 40}
 for i, dist in enumerate([80, 95, 110, 125]):
-    r = 12 + i
-    elec.update({f"B{r}": 1, f"D{r}": dist, f"I{r}": "300 kcmil", f"J{r}": 2, f"O{r}": '3"'})
+    r = 18 + i
+    elec.update({f"F{r}": dist, f"L{r}": "300 KCMIL", f"M{r}": 2, f"R{r}": '(3") '})
 for i, dist in enumerate([60, 75]):
-    r = 151 + i
-    elec.update({f"B{r}": 2, f"C{r}": 1, f"D{r}": 208, f"E{r}": 40, f"H{r}": dist, f"I{r}": "8 AWG"})
+    r = 22 + i
+    elec.update({f"F{r}": dist, f"L{r}": "8 AWG", f"M{r}": 2})
 elec.update({
-    "B30": "Existing MSB", "B31": 40, "B32": 120, "B33": 200, "B34": "No", "B36": 1, "B42": 3200,
-    "B51": "Added load to existing service", "B52": "Underground", "B53": 150, "B54": "No", "B56": 3500,
-    "B57": "Unknown — design not yet submitted", "B60": "Unknown", "B62": "Yes", "B63": "Yes", "B64": "Yes", "B65": "Yes",
-    "B119": "Utility — EV infrastructure rule",
-    "A130": "EVSE disconnects", "B130": "EVSE disconnect", "C130": 4, "D130": 480, "E130": 3, "F130": 600, "G130": "MSB",
-    "H130": "TP5 cabinets", "I130": "Pad", "J130": "Zero Impact Energy", "K130": "Vendor quote", "L130": 12000,
+    "B140": 1, "B142": 3200, "B144": "No", "B148": "Existing MSB", "B149": 200, "B150": 120,
+    "B155": "Utility — EV infrastructure rule", "B157": 40,
+    "A165": "EVSE disconnects", "B165": "EVSE disconnect", "C165": 4, "D165": 480, "E165": 3, "F165": 600, "G165": "MSB",
+    "H165": "TP5 cabinets", "I165": "Pad", "J165": "Zero Impact Energy", "K165": "Vendor quote", "L165": 12000,
+    "B185": "Added load to existing service", "B186": "Underground", "B187": 150, "B188": "No", "B191": 3500,
+    "B192": "Unknown — design not yet submitted", "B195": "Unknown", "B197": "Yes", "B198": "Yes", "B199": "Yes", "B200": "Yes",
 })
 put("Electrical", elec)
 

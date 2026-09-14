@@ -125,7 +125,7 @@ export function IntakeImportPanel() {
     <>
       <Section
         title="Import a completed intake workbook"
-        subtitle="The CEO's EVSE Project Intake (template 2.x) filled in by the client or the RSM. Every blue cell lands where the estimator keeps it — chargers and distances, terms, revenue and carbon assumptions, the existing installation, the Rule 29 block and the override register — as a NEW project in the library. The estimator's own rates stay in force."
+        subtitle="The CEO's EVSE Project Intake (template 3.5.0) filled in by the client or the RSM. Every blue cell lands where the estimator keeps it — chargers and distances, terms, revenue and carbon assumptions, the existing installation, the Rule 29 block and the override register — as a NEW project in the library. The estimator's own rates stay in force."
       >
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -340,7 +340,7 @@ export function UtilityTariffSection() {
   );
 }
 
-/** 3 · Electrical — the utility interconnection / Rule 29 block (intake Electrical rows 51–67, 119). */
+/** 3 · Electrical — the utility interconnection / Rule 29 block (intake 3.5.0 Electrical rows 185–202, feeder B155). */
 export function InterconnectionSection() {
   const x = useIntakeEditing();
   const { project, setProject, numOrNull, ic, icResult, setIc } = x;
@@ -370,7 +370,7 @@ export function InterconnectionSection() {
           <Field label="Who provides the transformer-to-switchgear run?" hint="Under the IOUs' EV rules the utility does — that conductor is then not in our scope">
             <Pick value={ic.serviceFeederBy} onChange={(v) => setIc("serviceFeederBy", v as InterconnectionInput["serviceFeederBy"])} options={["", "Utility — EV infrastructure rule", "Zero Impact Energy"]} />
           </Field>
-          <Field label="Application submitted?" hint="Yes / No — with the date">
+          <Field label="Application submitted?" hint="Yes / No / In preparation — with the date (the intake splits it into its dropdown and date row)">
             <input className={inputCls} value={ic.applicationSubmitted} onChange={(e) => setIc("applicationSubmitted", e.target.value)} />
           </Field>
           <Field label="Utility project or design number">
