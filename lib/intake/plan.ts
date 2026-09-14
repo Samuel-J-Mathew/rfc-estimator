@@ -1,4 +1,4 @@
-// Plan the fill of the CEO's EVSE Project Intake 2.9.0 from a project — which
+// Plan the fill of the CEO's EVSE Project Intake 3.5.0 from a project — which
 // cell gets which value. Pure and light (no zip code), so the intake tabs can
 // preview it live; fillIntake.ts applies it to the template.
 //
@@ -21,11 +21,12 @@ import { defaultServiceTerms, modelInputsOf } from "../proposal/defaults";
 import type { ProposalResult, ScopeLine, ScopeStatus } from "../proposal/types";
 import { findSku } from "../ref/priceBook";
 import {
-  AC_RUN_TABLE,
   CARBON_CELLS,
+  CHARGER_RUN_TABLE,
   COMMERCIAL_CELLS,
   CONSTRUCTION_CELLS,
   DEAL_CELLS,
+  DISPENSER_RUN_TABLE,
   DISTRIBUTION_TABLE,
   ELECTRICAL_CELLS,
   EQUIPMENT_SINGLES,
@@ -39,7 +40,6 @@ import {
   FEE_COLS,
   FEE_ROWS,
   INTAKE_TEXT,
-  L2_CIRCUIT_TABLE,
   OVERRIDE_COLS,
   PROJECT_CELLS,
   RENTAL_ROW_NAMES,
@@ -52,6 +52,7 @@ import {
   VERSION_CELLS,
   conductorToIntake,
   conduitToIntake,
+  splitApplicationSubmitted,
 } from "./cells";
 import { estimatorOverrideRows, type IntakeOverrideRow } from "./handoff";
 import { isoToSerial } from "./serial";
@@ -131,7 +132,6 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
   const m = modelInputsOf(c);
   const x = project.existing;
   const ic = { ...defaultInterconnection(), ...it?.interconnection };
-  const loadTypeOf = (id: string) => project.loadTypes.find((l) => l.id === id);
 
   // ---- Version ------------------------------------------------------------
   const fileVersion = it?.fileVersion?.trim() || "Rev A";
@@ -306,49 +306,99 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
   // models every L2 load type at 208 V, so it can answer rather than be asked.
   const firstL2 = result.rows.find((r) => r.category === "L2" && !r.synthetic);
   if (firstL2) put("Equipment", EQUIPMENT_SINGLES.l2SupplyVoltage, firstL2.volts);
-  const lineNoFor = (loadTypeId: string): number | undefined => {
-    const hit = lineRows.find((r) => r.loadTypeId === loadTypeId);
-    return hit ? hit.rowNo - EQUIPMENT_TABLE.firstRow + 1 : undefined;
-  };
 
   // ---- Electrical -----------------------------------------------------------
+  // Block A — the sizing basis.
   const method = effectiveInstallMethod(s);
   put("Electrical", ELECTRICAL_CELLS.material, s.feederMaterial);
   put("Electrical", ELECTRICAL_CELLS.conduit, s.conduitType === "EMT" ? "EMT" : "PVC");
   if (method === "hybrid") warnings.push("Hybrid install: the intake carries one conduit type — EMT written; the trenched service section is not distinguishable on the intake.");
-  leftBlank.push("Electrical B7 trench surface, B8 trench depth, F5 design ambient — site facts the estimator does not model.");
-  let acRow = AC_RUN_TABLE.firstRow;
-  let acOverflow = 0;
+  put("Electrical", ELECTRICAL_CELLS.allowableVdFraction, s.maxVoltageDropFraction);
+  const ambientC = it?.designAmbientC ?? null;
+  if (ambientC !== null && Number.isFinite(ambientC)) put("Electrical", ELECTRICAL_CELLS.ambientC, ambientC);
+  else leftBlank.push("Electrical B10 design ambient (C) — site data the sheet insists on: every charger-run verdict reads SET THE DESIGN AMBIENT until it is typed. Enter it on the Electrical section (ASHRAE 2% design dry-bulb, or the duct-bank temperature for buried runs).");
+  leftBlank.push("Electrical B8 trench surface, B9 trench depth — site facts the estimator does not model; the template's Mixed / 24 in stand.");
+
+  // Block B — the charger-run table. The sheet lists every unit that takes a
+  // feeder or a branch itself, line by line in Equipment order; the estimator
+  // writes each unit's distance and its own sizing (conductor and conduit as
+  // overrides, circuits per unit as sets) on the unit's row. Unit k of the
+  // schedule is row firstRow + k − 1, so the rows are located the way the
+  // sheet locates them: by cumulative unit count over the lines that carry a
+  // priced SKU. A line with no SKU has no role on the sheet and no rows here.
+  const unitsBefore = new Map<number, number>();
+  const lineCount = new Map<number, number>();
+  let cumulativeUnits = 0;
+  for (const l of chargerLines) {
+    const lr = lineRows.find((r) => r.loadTypeId === l.loadTypeId);
+    if (!lr) continue;
+    const role = l.sku ? findSku(l.sku)?.role : undefined;
+    if (role !== "all_in_one" && role !== "power_cabinet" && role !== "level_2") continue;
+    unitsBefore.set(lr.rowNo, cumulativeUnits);
+    lineCount.set(lr.rowNo, l.count);
+    cumulativeUnits += l.count;
+  }
+  const chargerRows = CHARGER_RUN_TABLE.lastRow - CHARGER_RUN_TABLE.firstRow + 1;
+  if (cumulativeUnits > chargerRows) warnings.push(`${cumulativeUnits} charger units against the intake's ${chargerRows} charger-run rows — the runs beyond row ${CHARGER_RUN_TABLE.lastRow} were not written.`);
+  const unitsWritten = new Map<number, number>();
+  const unplacedLines = new Set<string>();
+  let runFt = 0;
   for (const r of result.rows) {
-    if (r.synthetic || r.category === "L2") continue;
-    const lt = loadTypeOf(r.loadTypeId);
-    const parallel = lt?.runsAreParallel ?? false;
-    if (!parallel && r.resolvedRunsPerUnit > 1) warnings.push(`${r.location}: ${r.resolvedRunsPerUnit} separate circuits per unit in the estimator — the intake carries one AC run per unit (sets = 1).`);
+    if (r.synthetic) continue;
+    const rowNo = lineRows.find((x) => x.loadTypeId === r.loadTypeId)?.rowNo;
+    const before = rowNo !== undefined ? unitsBefore.get(rowNo) : undefined;
+    if (rowNo === undefined || before === undefined) {
+      unplacedLines.add(r.loadTypeId);
+      continue;
+    }
     for (let u = 0; u < Math.max(1, r.units); u++) {
-      if (acRow > AC_RUN_TABLE.lastRow) {
-        acOverflow++;
-        continue;
-      }
-      put("Electrical", `${AC_RUN_TABLE.line}${acRow}`, lineNoFor(r.loadTypeId));
-      put("Electrical", `${AC_RUN_TABLE.distanceFt}${acRow}`, r.oneWayDistFt);
-      put("Electrical", `${AC_RUN_TABLE.conductor}${acRow}`, conductorToIntake(r.selectedWire));
-      put("Electrical", `${AC_RUN_TABLE.sets}${acRow}`, parallel ? r.resolvedRunsPerUnit : 1);
-      put("Electrical", `${AC_RUN_TABLE.conduit}${acRow}`, conduitToIntake(r.conduitSize));
-      acRow++;
+      const k = unitsWritten.get(rowNo) ?? 0;
+      unitsWritten.set(rowNo, k + 1);
+      if (k >= (lineCount.get(rowNo) ?? 0)) continue; // more estimator rows than units on the line — the sheet has no row for them
+      const row = CHARGER_RUN_TABLE.firstRow + before + k;
+      if (row > CHARGER_RUN_TABLE.lastRow) continue;
+      put("Electrical", `${CHARGER_RUN_TABLE.distanceFt}${row}`, r.oneWayDistFt);
+      put("Electrical", `${CHARGER_RUN_TABLE.sets}${row}`, Math.max(1, r.resolvedRunsPerUnit));
+      put("Electrical", `${CHARGER_RUN_TABLE.conductorOverride}${row}`, conductorToIntake(r.selectedWire));
+      put("Electrical", `${CHARGER_RUN_TABLE.conduitOverride}${row}`, conduitToIntake(r.conduitSize));
+      runFt += r.oneWayDistFt;
     }
   }
-  if (acOverflow) warnings.push(`${acOverflow} DC unit run(s) beyond the intake's ${AC_RUN_TABLE.lastRow - AC_RUN_TABLE.firstRow + 1} AC-run rows were not written.`);
+  for (const id of unplacedLines) warnings.push(`${id}: no price-book SKU on its Equipment line, so the intake lists no charger run for it — its distances were not written. Pick a SKU on the Equipment tab.`);
+  for (const [rowNo, count] of lineCount) {
+    const written = unitsWritten.get(rowNo) ?? 0;
+    if (written < count) warnings.push(`Equipment line ${rowNo - EQUIPMENT_TABLE.firstRow + 1}: ${count} unit(s) on the schedule but the estimate sizes ${written} — ${count - written} charger-run row(s) left without a distance.`);
+  }
+  if (runFt > 0 && s.trenchLengthFt > 0 && s.trenchLengthFt < runFt) {
+    leftBlank.push(`Electrical G18–G77 shared-trench flags — the estimator digs ${Math.round(s.trenchLengthFt)} ft of trench for ${Math.round(runFt)} ft of charger runs; mark the runs that share another run's trench so the sheet's trench figure agrees.`);
+  }
+  if (totalCabinets > 0) leftBlank.push(`Electrical rows ${DISPENSER_RUN_TABLE.firstRow}–${DISPENSER_RUN_TABLE.lastRow} cabinet-to-dispenser DC runs — the estimator sizes the cabinets' AC feeders only.`);
+
+  // Block D — service and switchgear.
   put("Electrical", ELECTRICAL_CELLS.pointOfConnection, ic.pointOfConnection);
   put("Electrical", ELECTRICAL_CELLS.txToSwitchgearFt, s.serviceChain?.utilityToSwitchgearFt);
   put("Electrical", ELECTRICAL_CELLS.spareCapacityA, x?.infrastructure.spareA ?? undefined);
   const frame = result.panel.bus480 ?? result.panel.bus208;
   put("Electrical", ELECTRICAL_CELLS.switchgearPricedA, frame?.suggestedBusA);
-  leftBlank.push("Electrical B32 distance to the pole, B34–B36 load management and board count — the estimator sizes one board at full nameplate.");
-  leftBlank.push("Electrical B45 demand-limiting setpoint — the billing setpoint the EMS holds the peak fifteen-minute draw to. Nothing is sized on it and the estimator does not model it; blank leaves the template falling back to the sizing cap above.");
+  leftBlank.push("Electrical B150 distance to the pole, B140 board count and B144–B145 load management — the estimator sizes one board at full nameplate; the template's 1 / No stand.");
+  leftBlank.push("Electrical B147 demand-limiting setpoint — the billing setpoint the EMS holds the peak fifteen-minute draw to. Nothing is sized on it and the estimator does not model it; blank leaves the template falling back to the sizing cap above.");
+  put("Electrical", ELECTRICAL_CELLS.feederBy, ic.serviceFeederBy);
+  const svc = result.rows.find((r) => r.synthetic && r.loadTypeId.startsWith("SVC Utility"));
+  put("Electrical", `${SERVICE_FEEDER_ROW.material}${SERVICE_FEEDER_ROW.row}`, s.serviceChain?.material ?? svc?.material);
+  if (svc) {
+    put("Electrical", `${SERVICE_FEEDER_ROW.conductor}${SERVICE_FEEDER_ROW.row}`, conductorToIntake(svc.selectedWire));
+    put("Electrical", `${SERVICE_FEEDER_ROW.sets}${SERVICE_FEEDER_ROW.row}`, svc.resolvedRunsPerUnit);
+    if (ambientC !== null && Number.isFinite(ambientC)) put("Electrical", ELECTRICAL_CELLS.feederAmbientC, ambientC);
+    else leftBlank.push("Electrical B156 design ambient for the service feeder — the run's own site figure, needed for its ampacity check when Zero Impact Energy provides it.");
+  }
+
+  // Block F — the Rule 29 block.
   put("Electrical", ELECTRICAL_CELLS.serviceType, ic.serviceType);
   put("Electrical", ELECTRICAL_CELLS.serviceRoute, ic.serviceRoute);
   put("Electrical", ELECTRICAL_CELLS.distanceToPoiFt, ic.distanceToPoiFt ?? undefined);
-  put("Electrical", ELECTRICAL_CELLS.applicationSubmitted, ic.applicationSubmitted);
+  const application = splitApplicationSubmitted(ic.applicationSubmitted);
+  put("Electrical", ELECTRICAL_CELLS.applicationSubmitted, application.status);
+  put("Electrical", ELECTRICAL_CELLS.applicationDate, application.date);
   put("Electrical", ELECTRICAL_CELLS.utilityProjectNumber, ic.utilityProjectNumber);
   if ((c?.utilityInterconnectFee ?? 0) > 0) put("Electrical", ELECTRICAL_CELLS.interconnectFee, c!.utilityInterconnectFee);
   put("Electrical", ELECTRICAL_CELLS.rule15Indicated, ic.rule15Indicated);
@@ -362,59 +412,76 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
   put("Electrical", ELECTRICAL_CELLS.acceptsActivation, ic.acceptsActivation);
   put("Electrical", ELECTRICAL_CELLS.designSubmitted, ic.designSubmitted);
   put("Electrical", ELECTRICAL_CELLS.designReturned, ic.designReturned);
-  put("Electrical", ELECTRICAL_CELLS.feederBy, ic.serviceFeederBy);
-  const svc = result.rows.find((r) => r.synthetic && r.loadTypeId.startsWith("SVC Utility"));
-  put("Electrical", `${SERVICE_FEEDER_ROW.material}${SERVICE_FEEDER_ROW.row}`, s.serviceChain?.material ?? svc?.material);
-  if (svc) {
-    put("Electrical", `${SERVICE_FEEDER_ROW.conductor}${SERVICE_FEEDER_ROW.row}`, conductorToIntake(svc.selectedWire));
-    put("Electrical", `${SERVICE_FEEDER_ROW.sets}${SERVICE_FEEDER_ROW.row}`, svc.resolvedRunsPerUnit);
-  }
-  // Distribution equipment — documented, priced through the override register (never twice).
+
+  // Block E — distribution equipment, documented and priced through the override register (never twice).
   const gear: GearSelection[] = per.useAutoGear ? result.panel.suggestedGear : per.gear;
   let dRow = DISTRIBUTION_TABLE.firstRow;
-  const distributionRow = (item: string, type: string, qty: number, volts?: number, ratingA?: number) => {
+  // Every item names what feeds it and what it feeds — the sheet's own check
+  // ("a panel nobody feeds is a panel nobody costed a feeder to") reads column G.
+  const distributionRow = (item: string, type: string, qty: number, volts?: number, ratingA?: number, fedFrom?: string, feeds?: string) => {
     if (dRow > DISTRIBUTION_TABLE.lastRow) return;
     put("Electrical", `${DISTRIBUTION_TABLE.item}${dRow}`, item);
     put("Electrical", `${DISTRIBUTION_TABLE.type}${dRow}`, type);
     put("Electrical", `${DISTRIBUTION_TABLE.qty}${dRow}`, qty);
     put("Electrical", `${DISTRIBUTION_TABLE.volts}${dRow}`, volts);
     put("Electrical", `${DISTRIBUTION_TABLE.ratingA}${dRow}`, ratingA);
+    put("Electrical", `${DISTRIBUTION_TABLE.fedFrom}${dRow}`, fedFrom);
+    put("Electrical", `${DISTRIBUTION_TABLE.feeds}${dRow}`, feeds);
     put("Electrical", `${DISTRIBUTION_TABLE.whoProvides}${dRow}`, INTAKE_TEXT.feederByUs);
     put("Electrical", `${DISTRIBUTION_TABLE.costBasis}${dRow}`, INTAKE_TEXT.costBasisPricedElsewhere);
     dRow++;
   };
+  const mainGear = gear.find((g) => g.qty > 0 && gearType(g.item) === "Switchboard");
+  const mainName = mainGear ? `${mainGear.item} ${mainGear.size}`.trim() : ic.pointOfConnection || "Service equipment";
+  const stepDown = gear.find((g) => g.qty > 0 && gearType(g.item) === "Transformer");
+  const stepDownName = stepDown ? `${stepDown.item} ${stepDown.size}`.trim() : undefined;
+  const subPanel = gear.find((g) => g.qty > 0 && (gearType(g.item) === "Subpanel" || gearType(g.item) === "Panelboard"));
+  const subPanelName = subPanel ? `${subPanel.item} ${subPanel.size}`.trim() : undefined;
+  const serviceSource = ic.serviceType === "Added load to existing service" ? ic.pointOfConnection || "Existing service" : "Utility transformer";
+  const hasL2 = result.rows.some((r) => !r.synthetic && r.category === "L2");
+  const hasDc = result.rows.some((r) => !r.synthetic && r.category === "DCFC");
+  const branchOcpd = (category: string) => new Set(result.rows.filter((r) => !r.synthetic && r.category === category && r.ocpdA > 0).map((r) => r.ocpdA));
+  const dcOcpd = branchOcpd("DCFC");
+  const l2Ocpd = branchOcpd("L2");
   for (const g of gear) {
     if (g.qty <= 0) continue;
     const amps = /a$/i.test(g.size.trim()) ? parseNumber(g.size) : undefined;
-    distributionRow(`${g.item} ${g.size}`.trim(), gearType(g.item), g.qty, parseNumber(g.voltage), amps);
-  }
-  for (const item of per.customItems ?? []) if (/\(quoted\)$/.test(item.name) && item.qty > 0) distributionRow(item.name.replace(/\s*\(quoted\)$/, ""), "Other", item.qty);
-  // Customer-furnished utility substructures, so the CEO sees them on his schedule; their money travels in override row 14.
-  if (per.transformerPadCost > 0) distributionRow("Transformer pad (customer-furnished, utility sets the transformer)", "Other", 1);
-  if (per.cableWellCost > 0) distributionRow("Cable well / secondary handhole", "Other", 1);
-  if (per.pullBoxQty > 0) distributionRow("Utility pull box, traffic-rated", "Other", per.pullBoxQty);
-  let l2Row = L2_CIRCUIT_TABLE.firstRow;
-  let l2Overflow = 0;
-  for (const r of result.rows) {
-    if (r.synthetic || r.category !== "L2") continue;
-    const lt = loadTypeOf(r.loadTypeId);
-    const circuits = (lt?.runsAreParallel ? 1 : Math.max(1, r.resolvedRunsPerUnit)) * Math.max(1, r.units);
-    for (let i = 0; i < circuits; i++) {
-      if (l2Row > L2_CIRCUIT_TABLE.lastRow) {
-        l2Overflow++;
-        continue;
+    const volts = parseNumber(g.voltage);
+    const type = gearType(g.item);
+    const name = `${g.item} ${g.size}`.trim();
+    let fedFrom: string | undefined;
+    let feeds: string | undefined;
+    if (type === "Switchboard") {
+      fedFrom = serviceSource;
+      feeds = [hasDc ? "DC charger branches" : "", stepDownName ? stepDownName : "", !stepDownName && hasL2 ? "Level 2 branches" : ""].filter(Boolean).join(", ") || "Charger branches";
+    } else if (type === "Transformer") {
+      fedFrom = mainName;
+      feeds = subPanelName ?? "Level 2 panel";
+    } else if (type === "Subpanel" || type === "Panelboard") {
+      fedFrom = stepDownName ?? mainName;
+      feeds = "Level 2 branches";
+    } else if (/breaker/i.test(g.item)) {
+      // A branch breaker matches the engine's OCPD for a DC or Level 2 circuit; anything else on the main is the step-down's primary device.
+      if (amps !== undefined && l2Ocpd.has(amps) && (volts === undefined || volts < 300)) {
+        fedFrom = subPanelName ?? stepDownName ?? mainName;
+        feeds = "Level 2 units";
+      } else if (amps !== undefined && dcOcpd.has(amps)) {
+        fedFrom = mainName;
+        feeds = "DC chargers";
+      } else {
+        fedFrom = mainName;
+        feeds = stepDownName ?? "Charger branches";
       }
-      put("Electrical", `${L2_CIRCUIT_TABLE.line}${l2Row}`, lineNoFor(r.loadTypeId));
-      put("Electrical", `${L2_CIRCUIT_TABLE.units}${l2Row}`, 1);
-      put("Electrical", `${L2_CIRCUIT_TABLE.volts}${l2Row}`, r.volts);
-      put("Electrical", `${L2_CIRCUIT_TABLE.ampsPerUnit}${l2Row}`, Math.round(r.designAmps * 10) / 10);
-      put("Electrical", `${L2_CIRCUIT_TABLE.distanceFt}${l2Row}`, r.oneWayDistFt);
-      put("Electrical", `${L2_CIRCUIT_TABLE.conductor}${l2Row}`, conductorToIntake(r.selectedWire));
-      l2Row++;
+    } else {
+      fedFrom = mainName;
     }
+    distributionRow(name, type, g.qty, volts, amps, fedFrom, feeds);
   }
-  if (l2Overflow) warnings.push(`${l2Overflow} Level 2 circuit(s) beyond the intake's ${L2_CIRCUIT_TABLE.lastRow - L2_CIRCUIT_TABLE.firstRow + 1} rows were not written.`);
-  if (totalCabinets > 0) leftBlank.push("Electrical rows 174–205 cabinet-to-dispenser DC runs — the estimator sizes the cabinets' AC feeders only.");
+  for (const item of per.customItems ?? []) if (/\(quoted\)$/.test(item.name) && item.qty > 0) distributionRow(item.name.replace(/\s*\(quoted\)$/, ""), "Other", item.qty, undefined, undefined, mainName);
+  // Customer-furnished utility substructures, so the CEO sees them on his schedule; their money travels in override row 14.
+  if (per.transformerPadCost > 0) distributionRow("Transformer pad (customer-furnished, utility sets the transformer)", "Other", 1, undefined, undefined, "Utility primary", mainName);
+  if (per.cableWellCost > 0) distributionRow("Cable well / secondary handhole", "Other", 1, undefined, undefined, "Utility transformer", mainName);
+  if (per.pullBoxQty > 0) distributionRow("Utility pull box, traffic-rated", "Other", per.pullBoxQty, undefined, undefined, "Utility transformer", mainName);
 
   // ---- Construction ---------------------------------------------------------
   put("Construction", CONSTRUCTION_CELLS.crewDays, f.laborBusinessDays);

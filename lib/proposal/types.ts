@@ -104,6 +104,13 @@ export interface IntakeInput {
   cca?: string;
   /** Utility interconnection record — the intake's Rule 29 block (lib/interconnection). */
   interconnection?: import("../interconnection").InterconnectionInput;
+  /**
+   * Design ambient temperature (C) for the charger runs — the intake's
+   * Electrical!B10, site data with no house default (ASHRAE 2% design
+   * dry-bulb, or the duct-bank temperature for buried runs). The estimator
+   * sizes without an ambient correction; this travels to the intake only.
+   */
+  designAmbientC?: number | null;
   /** Document control for the handoff (the intake's Version tab): this file's revision, who completed it, what changed. */
   fileVersion?: string;
   completedBy?: string;

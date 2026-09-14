@@ -1,4 +1,4 @@
-// The CEO's EVSE Project Intake 3.2.0 — where every blue cell lives.
+// The CEO's EVSE Project Intake 3.5.0 — where every blue cell lives.
 //
 // One vocabulary for both directions: the importer (importIntake.ts) reads
 // these cells into a project, the filler (fillIntake.ts) writes a project back
@@ -7,16 +7,16 @@
 
 /** The template generation this map describes. Compared against Version!B4 / B8 before anything is written. */
 export const INTAKE_TEMPLATE = {
-  version: "3.2.0",
+  version: "3.5.0",
   /**
    * Version!B8. It held at 4aecae7d4b5f25a9 across 2.9.0 -> 3.1.0 despite 53
-   * changed cells, and moved at 3.2.0 — so it is not a reliable content digest.
-   * The version string is what actually gates a fill.
+   * changed cells, and moved at 3.2.0 and 3.5.0 — so it is not a reliable
+   * content digest. The version string is what actually gates a fill.
    */
-  contentHash: "b0140566d4234d54",
-  file: "EVSE_Project_Intake_TEMPLATE_3.2.0.xlsx",
+  contentHash: "707fa08be51f7f32",
+  file: "EVSE_Project_Intake_TEMPLATE_3.5.0.xlsx",
   /** Where the blank template ships in the app bundle (public/). */
-  publicPath: "/intake/EVSE_Project_Intake_TEMPLATE_3.2.0.xlsx",
+  publicPath: "/intake/EVSE_Project_Intake_TEMPLATE_3.5.0.xlsx",
 } as const;
 
 export const VERSION_CELLS = {
@@ -80,20 +80,39 @@ export const EQUIPMENT_TABLE = {
   scopeSentence: "B27",
 } as const;
 
+/**
+ * The Electrical tab as rebuilt at template 3.3.0 ("around how sites are
+ * built"): block A sizing basis, block B ONE charger-run table generated from
+ * the Equipment tab, block C dispenser runs (power cabinets only), block D
+ * service and switchgear, block E the distribution schedule, block F the
+ * utility interconnection (Rule 29) block, block G retained infrastructure
+ * (auto, from the Existing tab) and block H the site's conductor sizing table
+ * (auto). 3.5.0 moved nothing — it locked every non-blue cell.
+ */
 export const ELECTRICAL_CELLS = {
-  material: "B5",
-  conduit: "B6",
-  trenchSurface: "B7",
-  trenchDepthIn: "B8",
-  ambientC: "F5",
-  pointOfConnection: "B30",
-  txToSwitchgearFt: "B31",
-  switchgearToPoleFt: "B32",
-  spareCapacityA: "B33",
-  loadManagement: "B34",
+  // Block A — sizing basis
+  material: "B6",
+  conduit: "B7",
+  trenchSurface: "B8",
+  trenchDepthIn: "B9",
+  /**
+   * SITE DATA the sheet insists on: every charger-run verdict reads "SET THE
+   * DESIGN AMBIENT" until it is typed, and the auto conductor column is blank
+   * without it. The estimator sizes at NEC 310.16 without an ambient
+   * correction, so this travels only when someone types it on the app's
+   * Electrical section (project.intake.designAmbientC).
+   */
+  ambientC: "B10",
+  insulationC: "B11",
+  terminationC: "B12",
+  /** Allowable voltage drop as a fraction (0.03 = 3%) — the estimator's maxVoltageDropFraction. */
+  allowableVdFraction: "B13",
+  // Block D — service and switchgear
+  boards: "B140",
+  switchgearPricedA: "B142",
+  loadManagement: "B144",
   /** SIZING cap: conductors, gear and power per position are sized on this. */
-  cappedKw: "B35",
-  boards: "B36",
+  cappedKw: "B145",
   /**
    * BILLING setpoint, new at 3.0.0 — what the EMS holds the peak fifteen-minute
    * draw to. Nothing is sized on it. Kept separate from cappedKw above because
@@ -101,40 +120,80 @@ export const ELECTRICAL_CELLS = {
    * buy a demand-charge saving. The estimator models neither, so this is
    * reported rather than written.
    */
-  demandSetpointKw: "B45",
-  switchgearPricedA: "B42",
-  // Rule 29 block
-  serviceType: "B51",
-  serviceRoute: "B52",
-  distanceToPoiFt: "B53",
-  applicationSubmitted: "B54",
-  utilityProjectNumber: "B55",
-  interconnectFee: "B56",
-  rule15Indicated: "B57",
-  rule15Allowance: "B58",
-  contributionAboveAllowance: "B59",
-  rule16: "B60",
-  itcc: "B61",
-  padLocationAgreed: "B62",
-  proofOfCommitment: "B63",
-  acceptsOandM: "B64",
-  acceptsActivation: "B65",
-  designSubmitted: "B66",
-  designReturned: "B67",
+  demandSetpointKw: "B147",
+  pointOfConnection: "B148",
+  spareCapacityA: "B149",
+  switchgearToPoleFt: "B150",
   // Service feeder block
-  governingRule: "B118",
-  feederBy: "B119",
-  feederAmbientC: "B120",
+  governingRule: "B154",
+  feederBy: "B155",
+  feederAmbientC: "B156",
+  txToSwitchgearFt: "B157",
+  // Block F — Rule 29 block
+  serviceType: "B185",
+  serviceRoute: "B186",
+  distanceToPoiFt: "B187",
+  /** A dropdown since 3.3.0 (Yes / No / In preparation); the date has its own row below. */
+  applicationSubmitted: "B188",
+  applicationDate: "B189",
+  utilityProjectNumber: "B190",
+  interconnectFee: "B191",
+  rule15Indicated: "B192",
+  rule15Allowance: "B193",
+  contributionAboveAllowance: "B194",
+  rule16: "B195",
+  itcc: "B196",
+  padLocationAgreed: "B197",
+  proofOfCommitment: "B198",
+  acceptsOandM: "B199",
+  acceptsActivation: "B200",
+  designSubmitted: "B201",
+  designReturned: "B202",
 } as const;
 
-/** AC runs, one row per AC-connected unit (cabinet or all-in-one). */
-export const AC_RUN_TABLE = { firstRow: 12, lastRow: 23, line: "B", distanceFt: "D", conductor: "I", sets: "J", conduit: "O" } as const;
+/**
+ * Block B — the charger-run table, one row per unit that takes a feeder or a
+ * branch: every standalone DC charger, power cabinet and Level 2 unit, in the
+ * order of the Equipment tab (line by line, unit by unit — Equipment columns
+ * Q–V number them and column W here says which line a row belongs to). The
+ * sheet fills columns A–D and every "(auto)" column itself; the blue cells are
+ * the circuit name (blank = its own circuit), the distance, the shared-trench
+ * flag, the conductor and conduit overrides and the number of sets. "Sets"
+ * is how the sheet carries a unit fed by more than one circuit — a dual
+ * Level 2 pedestal on two branches, a power cabinet on two inputs — so the
+ * estimator's circuits per unit land there. Unit k of the schedule is row
+ * firstRow + k − 1.
+ */
+export const CHARGER_RUN_TABLE = {
+  firstRow: 18,
+  lastRow: 77,
+  circuit: "E",
+  distanceFt: "F",
+  sharesTrench: "G",
+  conductorOverride: "L",
+  sets: "M",
+  conduitOverride: "R",
+  /** Auto columns, read back by the importer when the file carries cached values. */
+  autoConductor: "K",
+  autoConduit: "Q",
+  stream: "V",
+  line: "W",
+} as const;
+
+/**
+ * Block C — cabinet-to-dispenser DC runs, used only when a power cabinet is
+ * scheduled (the sheet says NOT USED otherwise). Rows are built from the
+ * cabinet lines: dispenser k is row firstRow + k − 1.
+ */
+export const DISPENSER_RUN_TABLE = { firstRow: 95, lastRow: 126, distanceFt: "C", conductor: "E", ground: "F", conduit: "G", sharedTrench: "H" } as const;
+
 /** The transformer-to-switchgear feeder (one lateral). */
-export const SERVICE_FEEDER_ROW = { row: 123, material: "B", conductor: "I", sets: "J" } as const;
-/** Distribution equipment schedule. */
+export const SERVICE_FEEDER_ROW = { row: 160, material: "B", conductor: "I", sets: "J" } as const;
+
+/** Block E — distribution equipment schedule. */
 export const DISTRIBUTION_TABLE = {
-  firstRow: 130,
-  lastRow: 141,
+  firstRow: 165,
+  lastRow: 176,
   item: "A",
   type: "B",
   qty: "C",
@@ -148,10 +207,29 @@ export const DISTRIBUTION_TABLE = {
   costBasis: "K",
   quotedCost: "L",
 } as const;
-/** Level 2 circuits, one row per circuit. Column G (breaker) is the sheet's own auto column and is never written. */
-export const L2_CIRCUIT_TABLE = { firstRow: 151, lastRow: 166, line: "B", units: "C", volts: "D", ampsPerUnit: "E", distanceFt: "H", conductor: "I" } as const;
-/** Cabinet-to-dispenser DC runs (distributed systems). */
-export const DC_RUN_TABLE = { firstRow: 174, lastRow: 205, fedFromLine: "B", distanceFt: "C", circuits: "D", conductor: "E", ground: "F", conduit: "G", sharedTrench: "H" } as const;
+
+/** The Rule 29 block's "application submitted" dropdown since 3.3.0. */
+export const APPLICATION_SUBMITTED_OPTIONS = ["Yes", "No", "In preparation"] as const;
+
+/**
+ * The estimator keeps "application submitted" as one free-text field ("Yes —
+ * 2026-08-01"); the intake has a dropdown and a date row. Split one into the
+ * other and back.
+ */
+export function splitApplicationSubmitted(text: string): { status: string; date: string } {
+  const t = text.trim();
+  if (!t) return { status: "", date: "" };
+  const date = /\d{4}-\d{2}-\d{2}/.exec(t)?.[0] ?? "";
+  const head = t.split(/\s+[—–-]\s+|,/)[0].trim();
+  const status = APPLICATION_SUBMITTED_OPTIONS.find((o) => o.toLowerCase() === head.toLowerCase()) ?? (/^y/i.test(head) ? "Yes" : /^n/i.test(head) ? "No" : /^in prep/i.test(head) ? "In preparation" : "");
+  return { status: status || (date ? "Yes" : t), date };
+}
+
+export function joinApplicationSubmitted(status: string, date: string): string {
+  const s = status.trim();
+  const d = date.trim();
+  return s && d ? `${s} — ${d}` : s || d;
+}
 
 export const CONSTRUCTION_CELLS = {
   crewDays: "B5",

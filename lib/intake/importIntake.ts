@@ -30,6 +30,7 @@ import { MARKET_BENCHMARKS } from "../ref/benchmarks";
 import { findSku } from "../ref/priceBook";
 import { UTILITIES } from "../ref/utilities";
 import { applyEquipmentSchedule, loadTypeIdForSku } from "../skus";
+import { CHARGER_RUN_TABLE, DISPENSER_RUN_TABLE, DISTRIBUTION_TABLE, ELECTRICAL_CELLS, INTAKE_TEMPLATE, joinApplicationSubmitted } from "./cells";
 import { readWorkbook, type CellValue, type WorkbookCells } from "./xlsx";
 
 export interface IntakeImportReport {
@@ -128,7 +129,13 @@ export function projectFromIntake(wb: WorkbookCells, base: Project, allowance: R
   const completedBy = str("Version", "B12");
   const projectReference = str("Version", "B13");
   const revisionNotes = str("Version", "B14");
-  if (templateVersion && !templateVersion.startsWith("2.")) warnings.push(`Template ${templateVersion} — the importer is written to the 2.x layout; some fields may have moved.`);
+  if (templateVersion && templateVersion !== INTAKE_TEMPLATE.version) {
+    const [major, minor] = templateVersion.split(".").map(Number);
+    const beforeRebuild = Number.isFinite(major) && Number.isFinite(minor) && (major < 3 || (major === 3 && minor < 3));
+    warnings.push(
+      `Template ${templateVersion} — the importer is written to the ${INTAKE_TEMPLATE.version} layout${beforeRebuild ? "; the Electrical tab was rebuilt at 3.3.0, so its run distances, feeder, distribution schedule and Rule 29 block are not where this importer looks" : "; some fields may have moved"}.`,
+    );
+  }
   if (!templateVersion) warnings.push("No template version on the Version tab — is this an EVSE Project Intake?");
 
   // ---- Project ----------------------------------------------------------
@@ -186,22 +193,34 @@ export function projectFromIntake(wb: WorkbookCells, base: Project, allowance: R
   const scopeSentence = str("Equipment", "B27");
 
   // ---- Electrical → distances, materials, gear, interconnection ---------
-  const material = str("Electrical", "B5");
-  const conduit = str("Electrical", "B6");
+  // The tab as rebuilt at template 3.3.0: block A sizing basis, ONE charger-run
+  // table generated from the Equipment tab, the dispenser runs, service and
+  // switchgear, the distribution schedule and the Rule 29 block — every cell
+  // through the same map the filler writes (cells.ts).
+  const E = ELECTRICAL_CELLS;
+  const material = str("Electrical", E.material);
+  const conduit = str("Electrical", E.conduit);
+  // Charger runs: one row per unit that takes a feeder or a branch, line by
+  // line in Equipment order — unit k is row firstRow + k − 1. Located the way
+  // the sheet locates them (cumulative unit count over the lines with a
+  // priced SKU) rather than through the sheet's own auto columns, which carry
+  // no cached value in a file written by a script.
+  const unitLines: number[] = [];
+  for (let r = 7; r <= 18; r++) {
+    const eq = equipmentLine.get(r - 6);
+    const qty = num("Equipment", `I${r}`) ?? 0;
+    if (!eq || !["all_in_one", "power_cabinet", "level_2"].includes(eq.role)) continue;
+    for (let i = 0; i < qty; i++) unitLines.push(r - 6);
+  }
   const dcDist: number[] = [];
   const l2Dist: number[] = [];
-  for (let r = 12; r <= 23; r++) {
-    const d = num("Electrical", `D${r}`);
+  for (let k = 0; k < unitLines.length; k++) {
+    const row = CHARGER_RUN_TABLE.firstRow + k;
+    if (row > CHARGER_RUN_TABLE.lastRow) break;
+    const d = num("Electrical", `${CHARGER_RUN_TABLE.distanceFt}${row}`);
     if (d === undefined || d <= 0) continue;
-    const lineNo = num("Electrical", `B${r}`);
-    const eq = lineNo ? equipmentLine.get(lineNo) : undefined;
-    if (eq?.role === "level_2") l2Dist.push(d);
+    if (equipmentLine.get(unitLines[k])?.role === "level_2") l2Dist.push(d);
     else dcDist.push(d);
-  }
-  for (let r = 151; r <= 166; r++) {
-    const d = num("Electrical", `H${r}`);
-    const units = num("Electrical", `C${r}`) ?? 0;
-    if (d !== undefined && d > 0 && (units > 0 || num("Electrical", `E${r}`))) l2Dist.push(d);
   }
   const ladder = (ds: number[]) => {
     const sorted = [...ds].sort((a, b) => a - b);
@@ -211,61 +230,64 @@ export function projectFromIntake(wb: WorkbookCells, base: Project, allowance: R
   };
   const dc = dcDist.length ? ladder(dcDist) : undefined;
   const l2 = l2Dist.length ? ladder(l2Dist) : undefined;
-  if (dc) mapped.push(`AC runs: ${dcDist.length} DC run(s), nearest ${dc.first} ft${dc.step !== undefined ? `, ${dc.step} ft between units` : ""}`);
+  if (dc) mapped.push(`Charger runs: ${dcDist.length} DC run(s), nearest ${dc.first} ft${dc.step !== undefined ? `, ${dc.step} ft between units` : ""}`);
   if (l2) mapped.push(`Level 2 runs: ${l2Dist.length} run(s), nearest ${l2.first} ft`);
   if (!dc && !l2 && lines.length) warnings.push("No run distances on the Electrical tab — the Quick Estimate defaults (100 ft, 15 ft steps) are in force.");
-  const txToSwitchgear = num("Electrical", "B31");
-  const switchgearPriced = num("Electrical", "B42");
-  const boards = num("Electrical", "B36") ?? 1;
+  const txToSwitchgear = num("Electrical", E.txToSwitchgearFt);
+  const switchgearPriced = num("Electrical", E.switchgearPricedA);
+  const boards = num("Electrical", E.boards) ?? 1;
   if (boards > 1) warnings.push(`${boards} service boards in the lineup — the estimator sizes one switchboard; split the gear by hand on the Peripherals tab.`);
-  if (yes("Electrical", "B34")) warnings.push(`Load management proposed (cap ${num("Electrical", "B35") ?? "not entered"} kW) — the estimator sizes the service at full nameplate.`);
+  if (yes("Electrical", E.loadManagement)) warnings.push(`Load management proposed (cap ${num("Electrical", E.cappedKw) ?? "not entered"} kW) — the estimator sizes the service at full nameplate.`);
+  const designAmbientC = num("Electrical", E.ambientC);
   const dcRuns: number[] = [];
-  for (let r = 174; r <= 205; r++) {
-    const d = num("Electrical", `C${r}`);
+  for (let r = DISPENSER_RUN_TABLE.firstRow; r <= DISPENSER_RUN_TABLE.lastRow; r++) {
+    const d = num("Electrical", `${DISPENSER_RUN_TABLE.distanceFt}${r}`);
     if (d !== undefined && d > 0) dcRuns.push(d);
   }
   if (dcRuns.length) skipped.push(`${dcRuns.length} cabinet-to-dispenser DC run(s), ${dcRuns.reduce((s, d) => s + d, 0)} ft — dispenser DC runs are not in the estimator takeoff yet.`);
   for (const [ref, label] of [
-    ["B7", "Trench surface"],
-    ["B8", "Trench depth (in)"],
-    ["F5", "Design ambient (C)"],
-    ["B30", "Point of connection"],
-    ["B32", "Distance switchgear to pole (ft)"],
+    [E.trenchSurface, "Trench surface"],
+    [E.trenchDepthIn, "Trench depth (in)"],
+    [E.pointOfConnection, "Point of connection"],
+    [E.switchgearToPoleFt, "Distance switchgear to pole (ft)"],
   ] as const) {
     const v = str("Electrical", ref);
     if (v) skipped.push(`Electrical ${label}: "${v}" — recorded in the notes, not modelled.`);
   }
-  const feederBy = str("Electrical", "B119");
+  const feederBy = str("Electrical", E.feederBy);
   const interconnection: InterconnectionInput = {
     ...defaultInterconnection(),
-    serviceType: str("Electrical", "B51") as InterconnectionInput["serviceType"],
-    serviceRoute: str("Electrical", "B52") as InterconnectionInput["serviceRoute"],
-    distanceToPoiFt: num("Electrical", "B53") ?? null,
-    applicationSubmitted: str("Electrical", "B54"),
-    utilityProjectNumber: str("Electrical", "B55"),
-    rule15Indicated: str("Electrical", "B57") as InterconnectionInput["rule15Indicated"],
-    rule15Allowance: num("Electrical", "B58") ?? null,
-    rule16: str("Electrical", "B60") as InterconnectionInput["rule16"],
-    itcc: str("Electrical", "B61") as InterconnectionInput["itcc"],
-    padLocationAgreed: str("Electrical", "B62") as InterconnectionInput["padLocationAgreed"],
-    proofOfCommitment: str("Electrical", "B63") as InterconnectionInput["proofOfCommitment"],
-    acceptsOandM: str("Electrical", "B64") as InterconnectionInput["acceptsOandM"],
-    acceptsActivation: str("Electrical", "B65") as InterconnectionInput["acceptsActivation"],
-    designSubmitted: str("Electrical", "B66"),
-    designReturned: str("Electrical", "B67"),
+    serviceType: str("Electrical", E.serviceType) as InterconnectionInput["serviceType"],
+    serviceRoute: str("Electrical", E.serviceRoute) as InterconnectionInput["serviceRoute"],
+    distanceToPoiFt: num("Electrical", E.distanceToPoiFt) ?? null,
+    applicationSubmitted: joinApplicationSubmitted(str("Electrical", E.applicationSubmitted), str("Electrical", E.applicationDate)),
+    utilityProjectNumber: str("Electrical", E.utilityProjectNumber),
+    rule15Indicated: str("Electrical", E.rule15Indicated) as InterconnectionInput["rule15Indicated"],
+    rule15Allowance: num("Electrical", E.rule15Allowance) ?? null,
+    rule16: str("Electrical", E.rule16) as InterconnectionInput["rule16"],
+    itcc: str("Electrical", E.itcc) as InterconnectionInput["itcc"],
+    padLocationAgreed: str("Electrical", E.padLocationAgreed) as InterconnectionInput["padLocationAgreed"],
+    proofOfCommitment: str("Electrical", E.proofOfCommitment) as InterconnectionInput["proofOfCommitment"],
+    acceptsOandM: str("Electrical", E.acceptsOandM) as InterconnectionInput["acceptsOandM"],
+    acceptsActivation: str("Electrical", E.acceptsActivation) as InterconnectionInput["acceptsActivation"],
+    designSubmitted: str("Electrical", E.designSubmitted),
+    designReturned: str("Electrical", E.designReturned),
     serviceFeederBy: feederBy as InterconnectionInput["serviceFeederBy"],
-    pointOfConnection: str("Electrical", "B30"),
+    pointOfConnection: str("Electrical", E.pointOfConnection),
   };
-  const interconnectFeeUnit = num("Electrical", "B56") ?? 0;
-  const lineExtensionUnit = num("Electrical", "B59") ?? 0;
+  const interconnectFeeUnit = num("Electrical", E.interconnectFee) ?? 0;
+  const lineExtensionUnit = num("Electrical", E.contributionAboveAllowance) ?? 0;
   // Distribution equipment schedule — quoted items we provide, at the materials markup.
   const distributionItems: { name: string; qty: number; unitCost: number }[] = [];
-  for (let r = 130; r <= 141; r++) {
-    const item = str("Electrical", `A${r}`);
-    const cost = num("Electrical", `L${r}`) ?? 0;
-    const who = str("Electrical", `J${r}`).toLowerCase();
+  const D = DISTRIBUTION_TABLE;
+  for (let r = D.firstRow; r <= D.lastRow; r++) {
+    const item = str("Electrical", `${D.item}${r}`);
+    const cost = num("Electrical", `${D.quotedCost}${r}`) ?? 0;
+    const who = str("Electrical", `${D.whoProvides}${r}`).toLowerCase();
     if (!item || cost <= 0 || who === "by others") continue;
-    distributionItems.push({ name: `${item}${str("Electrical", `B${r}`) ? ` — ${str("Electrical", `B${r}`)}` : ""}${num("Electrical", `F${r}`) ? ` ${num("Electrical", `F${r}`)} A` : ""} (quoted)`, qty: 1, unitCost: cost });
+    const type = str("Electrical", `${D.type}${r}`);
+    const rating = num("Electrical", `${D.ratingA}${r}`);
+    distributionItems.push({ name: `${item}${type ? ` — ${type}` : ""}${rating ? ` ${rating} A` : ""} (quoted)`, qty: 1, unitCost: cost });
   }
   if (distributionItems.length) mapped.push(`Distribution equipment: ${distributionItems.length} quoted item(s), ${money(distributionItems.reduce((s, i) => s + i.unitCost, 0))} into the wires and peripherals line`);
 
@@ -729,6 +751,7 @@ export function projectFromIntake(wb: WorkbookCells, base: Project, allowance: R
     county: str("Project", "B15"),
     cca: str("Project", "B46"),
     interconnection,
+    designAmbientC: designAmbientC ?? null,
   };
   project.intake = intake;
   if (rateSchedule) mapped.push(`Rate schedule ${rateSchedule}${access ? ` · ${access}` : ""} · ${hoursOpen ?? 24} h/day · ${daysOpen ?? 365} days/yr`);

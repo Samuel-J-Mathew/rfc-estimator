@@ -62,7 +62,7 @@ python scripts/verify-cached-values.py out.xlsx
 ## Commercial layer (Commercial tab)
 
 The estimator stops at **Total Cost**. The Commercial tab (`lib/proposal/`) turns
-that cost into a **customer price** the way the CEO's EVSE Project Intake 3.1.0
+that cost into a **customer price** the way the CEO's EVSE Project Intake 3.5.0
 and the Best Western project model do, without touching the engine:
 
 - Markups on materials-class lines and on labour (after contingency), discounts
@@ -132,7 +132,7 @@ matching sheets with live formulas (`lib/exportModel.ts`).
 
 ### Intake import, replacement sites, Rule 29 and the override register
 
-- **Import a completed intake** (Intake tab): a filled EVSE Project Intake 2.x
+- **Import a completed intake** (Intake tab): a filled EVSE Project Intake 3.5.0
   workbook becomes a new project — chargers and run distances, labour, D&E
   units, site-works quantities and rentals, pass-through fees, commercial and
   financing terms, revenue / tariff / carbon / deal assumptions, the existing
@@ -169,7 +169,7 @@ The client does not fill the intake; we do. The app therefore has two ways
 through one project (the switch sits in the header, the choice is remembered
 per browser):
 
-- **Intake** — the CEO's EVSE Project Intake 3.1.0 tab for tab, in its order
+- **Intake** — the CEO's EVSE Project Intake 3.5.0 tab for tab, in its order
   and vocabulary: 1 · Project, Existing, 2 · Equipment, 3 · Electrical,
   4 · Construction, 5 · Commercial, 6 · Revenue, 7 · Carbon, 8 · Deal
   structure, 9 · Overrides, then the **Business model** output and **Version
@@ -183,7 +183,7 @@ per browser):
 - **Estimator** — the engineering detail, unchanged: Quick Estimate, Setup,
   Takeoff, Panel schedule, Peripherals, Financials, Costs Internal, Results…
 
-**⬇ Intake 3.1.0** (toolbar and the handoff tab) writes the project into a copy
+**⬇ Intake 3.5.0** (toolbar and the handoff tab) writes the project into a copy
 of the blank template shipped in `public/intake/` — values only, through a
 small jszip cell patcher (`lib/intake/xlsxWrite.ts`, the twin of the reader),
 so the template's formulas, live checks, dropdowns, comments and defined
@@ -274,7 +274,7 @@ benchmarks) are generated from the template with `npm run refdata`.
   customer price), `margin.ts` (scope of supply, margin by line, construction
   margin build-up), `model.ts` (tariff, revenue, carbon, financing, cashflow,
   deal structure), `finance.ts` (PMT / NPV / IRR with Excel's conventions),
-  `defaults.ts` (intake 3.1.0 terms). Reads the engine's result, never
+  `defaults.ts` (intake 3.5.0 terms). Reads the engine's result, never
   modifies it.
 - `lib/ref/` — generated reference data from the CEO's intake template
   (`scripts/import-intake-refdata.py`).
@@ -282,7 +282,7 @@ benchmarks) are generated from the template with `npm run refdata`.
   service / EVOLV derivation from the price book's service classes, site
   capacity for the business model.
 - `lib/intake/` — the intake importer (`xlsx.ts` reader, `importIntake.ts`
-  mapping, a filled 3.1.0 fixture under `__fixtures__/`); `lib/existing.ts`,
+  mapping, a filled 3.5.0 fixture under `__fixtures__/`); `lib/existing.ts`,
   `lib/interconnection.ts`, `lib/overrides.ts` — the replacement-site scope,
   the Rule 29 block and the override register.
 - `lib/recalc/` — the formula engine that gives every exported formula cell

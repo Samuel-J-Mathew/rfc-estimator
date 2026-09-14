@@ -14,7 +14,7 @@ import { defaultCommercial, defaultIntake, defaultTariff, zeroRates } from "../p
 import { findSku } from "../ref/priceBook";
 import { applyEquipmentSchedule, loadTypeIdForSku } from "../skus";
 
-const TEMPLATE = join(__dirname, "..", "..", "templates", "source", "EVSE_Project_Intake_TEMPLATE_3.2.0.xlsx");
+const TEMPLATE = join(__dirname, "..", "..", "templates", "source", "EVSE_Project_Intake_TEMPLATE_3.5.0.xlsx");
 
 interface Scenario {
   name: string;
@@ -160,9 +160,9 @@ describe.each(SCENARIOS)("scenario: $name", (sc) => {
     if (sc.expectCivil.pad > 0) expect(reason).toMatch(/transformer pad/);
     else expect(reason).not.toMatch(/transformer pad/);
     // Substructures appear on the intake's distribution schedule, priced elsewhere.
-    const items = Array.from({ length: 12 }, (_, i) => String(wb.get("Electrical", `A${130 + i}`) ?? "")).join(" | ");
+    const items = Array.from({ length: 12 }, (_, i) => String(wb.get("Electrical", `A${165 + i}`) ?? "")).join(" | ");
     if (sc.expectCivil.pad > 0) expect(items).toMatch(/Transformer pad/);
     if (sc.expectCivil.pullBoxes > 0) expect(items).toMatch(/pull box/i);
-    expect(wb.get("Electrical", "B119")).toBe(sc.feederByUtility ? "Utility — EV infrastructure rule" : "Zero Impact Energy");
+    expect(wb.get("Electrical", "B155")).toBe(sc.feederByUtility ? "Utility — EV infrastructure rule" : "Zero Impact Energy");
   });
 });
