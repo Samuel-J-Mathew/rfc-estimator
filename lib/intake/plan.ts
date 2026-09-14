@@ -431,17 +431,17 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
   let dRow = DISTRIBUTION_TABLE.firstRow;
   // Every item names what feeds it and what it feeds — the sheet's own check
   // ("a panel nobody feeds is a panel nobody costed a feeder to") reads column G.
-  const distributionRow = (item: string, type: string, qty: number, volts?: number, ratingA?: number, fedFrom?: string, feeds?: string) => {
+  const distributionRow = (item: string, type: string, qty: number, volts?: number, ratingA?: number, fedFrom?: string, feeds?: string, existing = false) => {
     if (dRow > DISTRIBUTION_TABLE.lastRow) return;
-    put("Electrical", `${DISTRIBUTION_TABLE.item}${dRow}`, item);
+    put("Electrical", `${DISTRIBUTION_TABLE.item}${dRow}`, existing ? `${item} — existing, retained` : item);
     put("Electrical", `${DISTRIBUTION_TABLE.type}${dRow}`, type);
     put("Electrical", `${DISTRIBUTION_TABLE.qty}${dRow}`, qty);
     put("Electrical", `${DISTRIBUTION_TABLE.volts}${dRow}`, volts);
     put("Electrical", `${DISTRIBUTION_TABLE.ratingA}${dRow}`, ratingA);
     put("Electrical", `${DISTRIBUTION_TABLE.fedFrom}${dRow}`, fedFrom);
     put("Electrical", `${DISTRIBUTION_TABLE.feeds}${dRow}`, feeds);
-    put("Electrical", `${DISTRIBUTION_TABLE.whoProvides}${dRow}`, INTAKE_TEXT.feederByUs);
-    put("Electrical", `${DISTRIBUTION_TABLE.costBasis}${dRow}`, INTAKE_TEXT.costBasisPricedElsewhere);
+    put("Electrical", `${DISTRIBUTION_TABLE.whoProvides}${dRow}`, existing ? INTAKE_TEXT.byOthers : INTAKE_TEXT.feederByUs);
+    put("Electrical", `${DISTRIBUTION_TABLE.costBasis}${dRow}`, existing ? INTAKE_TEXT.byOthers : INTAKE_TEXT.costBasisPricedElsewhere);
     dRow++;
   };
   const mainGear = gear.find((g) => g.qty > 0 && gearType(g.item) === "Switchboard");
@@ -488,7 +488,7 @@ export function planIntakeFill(project: Project, result: EstimateResult, proposa
     } else {
       fedFrom = mainName;
     }
-    distributionRow(name, type, g.qty, volts, amps, fedFrom, feeds);
+    distributionRow(name, type, g.qty, volts, amps, fedFrom, feeds, type === "Switchboard" && !!per.existingSwitchgear);
   }
   for (const item of per.customItems ?? []) if (/\(quoted\)$/.test(item.name) && item.qty > 0) distributionRow(item.name.replace(/\s*\(quoted\)$/, ""), "Other", item.qty, undefined, undefined, mainName);
   // Customer-furnished utility substructures, so the CEO sees them on his schedule; their money travels in override row 14.

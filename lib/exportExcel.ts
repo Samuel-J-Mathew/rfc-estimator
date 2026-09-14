@@ -562,7 +562,9 @@ function fillPanel(ws: WS, project: Project, result: EstimateResult): void {
     ws.getCell(row, 2).value = g.size;
     ws.getCell(row, 3).value = g.voltage;
     ws.getCell(row, 4).value = g.qty;
-    const unit = gearUnitCost(g);
+    const existing = !!project.peripherals.existingSwitchgear && g.item === "Main switchgear";
+    const unit = existing ? 0 : gearUnitCost(g);
+    if (existing) ws.getCell(row, 1).value = `${g.item} — existing, retained`;
     ws.getCell(row, 5).value = unit;
     ws.getCell(row, 6).value = f(`D${row}*E${row}`, g.qty * unit);
     ws.getCell(row, 5).numFmt = MONEY;

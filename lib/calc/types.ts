@@ -422,6 +422,22 @@ export interface PeripheralsInput {
   cableWellCost: number;
   pullBoxQty: number;
   pullBoxUnitCost: number;
+  /**
+   * Concrete coring — core-drilled penetrations for EMT through slabs and
+   * walls on an indoor / parking-structure route (hardware line, into the
+   * wires-and-peripherals cost line). Counted by hand; absent = none.
+   */
+  coringQty?: number;
+  /** Installed cost per core (3–4" through a 6–8" slab, coring sub, mobilisation spread). Default CIVIL_RATES.coringPerHole. */
+  coringUnitCost?: number;
+  /**
+   * The site keeps its existing main switchgear: no new switchboard is
+   * priced (the Main Distribution Switchgear line reads 0), no switchgear
+   * pad is poured and the planner adds no bollards at the gear. The panel
+   * schedule still sizes the frame so the intake and the adequacy check see
+   * what the existing board has to carry.
+   */
+  existingSwitchgear?: boolean;
   /** Christy concrete box with traffic lid at the point of connection (hardware line). Absent = none. */
   serviceBoxQty?: number;
   /** Installed cost of that box. Default 600. */

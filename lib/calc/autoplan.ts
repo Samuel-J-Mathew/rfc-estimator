@@ -535,7 +535,7 @@ export function buildQuickProject(
     customItems,
     bollardsQty:
       counts.nChargers * BOLLARD_RULE.perCharger +
-      (counts.nDCFC > 0 ? BOLLARD_RULE.switchgear : 0) +
+      (counts.nDCFC > 0 && !p.peripherals.existingSwitchgear ? BOLLARD_RULE.switchgear : 0) +
       (mixedVoltage ? BOLLARD_RULE.stepDownSubPanel : 0),
     dataBoxQty: counts.nChargers > 0 ? 1 : 0,
     christyBoxQty: trenchFt > 0 ? Math.max(1, Math.ceil(trenchFt / 200)) : 0,

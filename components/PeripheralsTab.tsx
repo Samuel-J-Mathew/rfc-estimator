@@ -114,6 +114,16 @@ export function PeripheralsTab() {
     <div>
       <MaterialRatesSection />
       <Section title="A. Electrical gear" subtitle="Unit cost is looked up from the gear catalog; override if you have a live quote.">
+        <label className="mb-3 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5" checked={!!p.existingSwitchgear} onChange={(e) => updateP("existingSwitchgear", e.target.checked || undefined)} />
+          <span>
+            <span className="font-medium">Existing switchgear reused</span>
+            <span className="ml-2 text-xs text-zinc-500">
+              No new switchboard is priced — the Main Distribution Switchgear line reads $0 on Costs Internal, no switchgear pad is poured and the planner adds no bollards at the gear. The frame is still sized so the intake and the adequacy check see what the existing board carries.
+              {project.existing?.register.switchgear === "RETAIN" && !p.existingSwitchgear && <span className="ml-1 text-amber-600">The Existing site tab marks the switchgear RETAIN.</span>}
+            </span>
+          </span>
+        </label>
         {p.useAutoGear ? (
           <>
             <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
@@ -141,15 +151,21 @@ export function PeripheralsTab() {
                     const catalog = GEAR_CATALOG.find(
                       (c) => c.item === g.item && c.size === g.size && c.voltage === g.voltage,
                     );
-                    const unitCost = catalog?.unitCost ?? 0;
+                    const existing = !!p.existingSwitchgear && g.item === "Main switchgear";
+                    const unitCost = existing ? 0 : (catalog?.unitCost ?? 0);
                     return (
-                      <tr key={idx}>
-                        <td className="px-3 py-2">{g.item}</td>
+                      <tr key={idx} className={existing ? "text-zinc-400" : undefined}>
+                        <td className="px-3 py-2">
+                          {g.item}
+                          {existing && <span className="ml-2 text-xs">existing — retained, not priced</span>}
+                        </td>
                         <td className="px-3 py-2">{g.size}</td>
                         <td className="px-3 py-2">{g.voltage}</td>
                         <td className="px-3 py-2 text-right">{g.qty}</td>
                         <td className="px-3 py-2 text-right">
-                          {unitCost > 0 ? (
+                          {existing ? (
+                            money(0)
+                          ) : unitCost > 0 ? (
                             money(unitCost)
                           ) : (
                             <span className="text-amber-600">no catalog price</span>
@@ -206,7 +222,7 @@ export function PeripheralsTab() {
               {p.gear.map((g, idx) => {
                 const options = GEAR_CATALOG.filter((c) => c.item === g.item);
                 const catalog = GEAR_CATALOG.find((c) => c.item === g.item && c.size === g.size && c.voltage === g.voltage);
-                const unitCost = g.costOverride ?? catalog?.unitCost ?? 0;
+                const unitCost = p.existingSwitchgear && g.item === "Main switchgear" ? 0 : (g.costOverride ?? catalog?.unitCost ?? 0);
                 return (
                   <tr key={idx}>
                     <td className="px-3 py-2">
@@ -314,6 +330,12 @@ export function PeripheralsTab() {
             hint={`Auto-filled: ${BOLLARD_RULE.perCharger}/charger + ${BOLLARD_RULE.switchgear}-5 at switchgear + ${BOLLARD_RULE.stepDownSubPanel} at step-down TX & sub-panel`}
           ><input type="number" className={inputCls} value={p.bollardsQty} onChange={(e) => updateP("bollardsQty", Number(e.target.value))} /></Field>
           <Field label="Dump / waste ($)" hint="Not in the original workbook — real bids carry this line"><input type="number" className={inputCls} value={p.dumpWasteCost} onChange={(e) => updateP("dumpWasteCost", Number(e.target.value))} /></Field>
+          <Field label="Concrete coring (holes)" hint="Core-drilled penetrations for an indoor EMT route — slab and wall cores for the conduit. Priced into the wires & peripherals line.">
+            <input type="number" min={0} step="1" className={inputCls} value={p.coringQty ?? ""} placeholder="0" onChange={(e) => updateP("coringQty", e.target.value === "" ? undefined : Number(e.target.value))} />
+          </Field>
+          <Field label="Coring ($/hole, installed)" hint={`Shipped ${money(CIVIL_RATES.coringPerHole)}: 3–4" core through a 6–8" slab. 2026 lists run $90–95 a floor core and $240–250 a wall core with a $200–550 job minimum; quote it per site.`}>
+            <input type="number" min={0} step="1" className={`${inputCls} rate-input`} value={p.coringUnitCost ?? CIVIL_RATES.coringPerHole} onChange={(e) => updateP("coringUnitCost", Number(e.target.value))} />
+          </Field>
           {(p.demolitionItems?.length ?? 0) > 0 && (
             <Field label="Removal and demolition (Existing site tab)" hint="Set on the Existing site tab — priced into the Dump / Waste line">
               <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-sm dark:border-zinc-800 dark:bg-zinc-900">

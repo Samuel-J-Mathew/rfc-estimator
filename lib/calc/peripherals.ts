@@ -46,6 +46,15 @@ export const CIVIL_RATES = {
   ydPerDcfcPad: 0.75,
   ydPerL2Pad: 0.35,
   ydSwitchgearPad: 1.75,
+  /**
+   * Concrete coring, installed, per core: a 3–4" hole through a 6–8" slab or
+   * wall by a coring sub. Published 2026 price lists put a 3.5–4.5" floor core
+   * at $90–95 and a wall core at $240–250 (core-drill-bit.com), guides put a
+   * 2–4" hole at $100–350 with a $300–550 job minimum (naijaconstruct.com,
+   * oneanddoneprep.com). $150 is the mid-range with the minimum spread over
+   * a typical 6–10 core job; quote it per site.
+   */
+  coringPerHole: 150,
   ydXfmrSubPanelPad: 0.5,
   ydPerBollard: 0.08,
 } as const;
@@ -78,7 +87,8 @@ export function computePeripherals(
   const gearTotals = gearList.map((g) => ({ ...g, unitCost: gearUnitCost(g), total: g.qty * gearUnitCost(g) }));
   const mainSwitchgear = gearTotals.filter((g) => g.item === "Main switchgear");
   const otherGear = gearTotals.filter((g) => g.item !== "Main switchgear");
-  const gearMainSwitchgear = mainSwitchgear.reduce((s, g) => s + g.total, 0);
+  // An existing board stays in service: nothing to buy on the switchgear line.
+  const gearMainSwitchgear = input.existingSwitchgear ? 0 : mainSwitchgear.reduce((s, g) => s + g.total, 0);
   const gearOtherTotal = otherGear.reduce((s, g) => s + g.total, 0);
 
   const method = effectiveInstallMethod(setup);
@@ -126,6 +136,9 @@ export function computePeripherals(
     // route — one per site, priced installed (lib/calc/utilityCivil).
     { name: "Christy box, traffic-rated (point of connection)", qty: input.serviceBoxQty ?? 0, unitCost: input.serviceBoxUnitCost ?? 600, auto: false },
     { name: "Data box", qty: input.dataBoxQty, unitCost: 1500, auto: false },
+    // Core-drilled penetrations for an indoor EMT route (garage slab, hotel
+    // walls) — counted by hand, priced per core.
+    { name: "Concrete coring — conduit penetrations", qty: input.coringQty ?? 0, unitCost: input.coringUnitCost ?? CIVIL_RATES.coringPerHole, auto: false },
     { name: "Ground rods", qty: rollups.nChargers + rollups.nFeeders, unitCost: 34.87, auto: true },
     { name: "Charger anchor bolts", qty: rollups.nDCFC * 6 + rollups.nL2 * 4 + rollups.nFeeders * 4, unitCost: 5, auto: true },
     // Counts only the PVC lines, so a hybrid's trenched service section still
@@ -194,7 +207,7 @@ export function computePeripherals(
       ? 0
       : rollups.nDCFC * CIVIL_RATES.ydPerDcfcPad +
         (method === "trench" ? rollups.nL2 * CIVIL_RATES.ydPerL2Pad : 0) +
-        (rollups.nDCFC > 0 ? CIVIL_RATES.ydSwitchgearPad : 0) +
+        (rollups.nDCFC > 0 && !input.existingSwitchgear ? CIVIL_RATES.ydSwitchgearPad : 0) +
         (mixedVoltage ? CIVIL_RATES.ydXfmrSubPanelPad : 0) +
         input.bollardsQty * CIVIL_RATES.ydPerBollard;
   const concreteQty = input.concreteYardsOverride ?? (padYards > 0 ? Math.ceil(padYards) : 0);
@@ -344,6 +357,7 @@ export const PERIPHERAL_SHIPPED_PRICES = {
   consumablesPerL2: CIVIL_RATES.consumablesPerL2,
   consumablesPerDcfc: CIVIL_RATES.consumablesPerDcfc,
   serviceBoxUnitCost: 600,
+  coringUnitCost: CIVIL_RATES.coringPerHole,
   pullBoxUnitCost: 0,
   utilityVaultUnitCost: 0,
 } as const;
